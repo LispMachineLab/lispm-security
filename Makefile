@@ -9,7 +9,7 @@ LOAD_PATH = -L . $(foreach dir,$(wildcard $(LISPM_AGENT) $(LISPM_DESKTOP) $(LISP
 
 FILES = lispm-security.el lispm-security-toml.el lispm-security-inventory.el \
 	lispm-security-rules.el lispm-security-elisp.el lispm-security-pins.el \
-	lispm-security-osv.el lispm-security-ui.el
+	lispm-security-osv.el lispm-security-guard.el lispm-security-ui.el
 
 .PHONY: test compile
 
