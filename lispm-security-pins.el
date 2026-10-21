@@ -48,6 +48,7 @@
 (defvar lispm-mcp-servers)
 (declare-function mcp--tools "mcp" (connection))
 (declare-function jsonrpc-running-p "jsonrpc" (connection))
+(declare-function lispm-mcp-refresh "lispm-mcp" (&optional server))
 
 (defun lispm-security-pins--plain (value)
   "VALUE, as mcp.el decodes JSON, in one written form: object keys sorted.
@@ -72,6 +73,14 @@ So that a schema hashes alike whatever order a server lists its keys in."
           :description description
           :schema (prin1-to-string schema))))
 
+(defun lispm-security-pins--listed (connection)
+  "The tools CONNECTION's server listed last, as `lispm-security-pins-tool'
+makes them, sorted by name; nil if it does not run or listed none."
+  (when-let* (((ignore-errors (jsonrpc-running-p connection)))
+              (tools (ignore-errors (mcp--tools connection))))
+    (sort (mapcar #'lispm-security-pins-tool (append tools nil))
+          (lambda (a b) (string< (car a) (car b))))))
+
 (defun lispm-security-pins-running ()
   "The MCP servers running, with their tools: ((NAME . TOOLS) ...).
 TOOLS as `lispm-security-pins-tool' makes them, from the tools the
@@ -80,14 +89,18 @@ server listed last; a server that listed none yet is left out."
              (fboundp 'mcp--tools))
     (let (servers)
       (maphash (lambda (name connection)
-                 (when-let* (((ignore-errors (jsonrpc-running-p connection)))
-                             (tools (ignore-errors (mcp--tools connection))))
-                   (push (cons (format "%s" name)
-                               (sort (mapcar #'lispm-security-pins-tool (append tools nil))
-                                     (lambda (a b) (string< (car a) (car b)))))
-                         servers)))
+                 (when-let* ((tools (lispm-security-pins--listed connection)))
+                   (push (cons (format "%s" name) tools) servers)))
                mcp-server-connections)
       (sort servers (lambda (a b) (string< (car a) (car b)))))))
+
+(defun lispm-security-pins-listed (server)
+  "The tools the running MCP SERVER listed last, or nil if it does not run
+or listed none; as `lispm-security-pins-running' gives them."
+  (when (and (boundp 'mcp-server-connections) (hash-table-p mcp-server-connections)
+             (fboundp 'mcp--tools))
+    (when-let* ((connection (gethash server mcp-server-connections)))
+      (lispm-security-pins--listed connection))))
 
 (defun lispm-security-pins--item (server)
   "The :id of the item of the running SERVER."
@@ -106,8 +119,10 @@ server listed last; a server that listed none yet is left out."
 
 (defun lispm-security-trust (server)
   "Trust the tools the running MCP SERVER lists now: pin them as they are.
-A scan then reports any change.  Only the user does: no agent's tool
-calls this."
+A scan then reports any change, and agents' calls of them no longer
+ask, unless they change (see lispm-security-guard.el); LispM registers
+them again, those it kept back included.  Only the user does: no
+agent's tool calls this."
   (interactive
    (list (completing-read "Trust the tools of the MCP server: "
                           (mapcar #'car (lispm-security-pins-running)) nil t)))
@@ -117,6 +132,8 @@ calls this."
     (lispm-security-state-put
      :pins (cons (cons server (list :hash (lispm-security-pins-hash tools) :at (current-time) :tools tools))
                  (seq-remove (lambda (pin) (equal (car pin) server)) (lispm-security-state :pins))))
+    (when (fboundp 'lispm-mcp-refresh)
+      (lispm-mcp-refresh server))
     (message "Security: the %d tools of %s are pinned" (length tools) server)))
 
 (defun lispm-security--short (text)
@@ -151,7 +168,8 @@ calls this."
                  :server server
                  :evidence (mapconcat #'car tools ", ")
                  :detail "Read what its tools say they do; once you trust them, trust the server (t) \
-to pin them.  Security then reports any change to them.")
+to pin them.  Security then reports any change to them; until then, each call agents make of \
+them asks.")
                 findings))
          ((not (equal (plist-get pin :hash) (lispm-security-pins-hash tools)))
           (pcase-dolist (`(,what ,name ,old ,new) (lispm-security-pins-changes (plist-get pin :tools) tools))

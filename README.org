@@ -40,18 +40,43 @@ find, then checks them:
 Rules flag what deserves a look.  The user judges: a finding they find harmless they set aside,
 and it stays so.
 
+* While agents work
+
+With LispM Agent 0.3.0 or later loaded, Security checks each tool call of LispM's agents before it
+runs, and each MCP server's tools before agents see them:
+
+- *Servers you have not trusted.*  Each call of their tools asks, whatever LispM's policy says,
+  until you trust the server (=t= in the window).
+- *Tools that changed since you trusted them*, the shape of a rug pull.  When LispM registers
+  the server's tools, they are kept back, so that no agent reads what they now say, and their
+  calls are denied, should the server change them while it runs.  Set
+  ~lispm-security-changed-tools~ to ~ask~ to have them ask instead.  Trusting the server again
+  has LispM register its tools again.
+- *Toxic flows.*  Once a session has read untrusted content (a web page, what an MCP server
+  returned) and private data (your files, its memory), a call that can send data out (the web,
+  a shell command, Lisp, an MCP server's tool) asks: the content may have told the model to send
+  the data.  ~lispm-security-toxic-flows~ turns this off; ~lispm-security-untrusted-classes~,
+  ~lispm-security-private-classes~ and ~lispm-security-outbound-classes~ say which permission
+  classes are which.
+
+Each answer comes with its reason, which the approval shows, or the model is told with a denial.
+LispM counts a check that fails as one that asks, so an error in Security lets no call through,
+and Security can only make a call ask or be refused, never let one through that LispM would ask
+about.  ~lispm-security-guard~ turns it all off, which a scan then reports, as it reports a LispM
+too old to ask.
+
 * Using it
 
 =M-x lispm-security= opens its window, the findings the worst first.
 
-| =RET= | what the finding means, where, and what to do                  |
-| =g=   | scan again                                                     |
-| =l=   | look the packages servers run up in OSV                        |
-| =t=   | trust the tools of the finding's MCP server: pin them as they are |
-| =x=   | set the finding aside, or take it back                         |
-| =o=   | visit the file the finding is about, at its line               |
-| =i=   | the inventory: what each agent is given                        |
-| =a=   | show the findings set aside too                                |
+| =RET= | what the finding means, where, and what to do                                      |
+| =g=   | scan again                                                                         |
+| =l=   | look the packages servers run up in OSV                                            |
+| =t=   | trust the tools of the finding's MCP server: pin them as they are, and stop asking |
+| =x=   | set the finding aside, or take it back                                             |
+| =o=   | visit the file the finding is about, at its line                                   |
+| =i=   | the inventory: what each agent is given                                            |
+| =a=   | show the findings set aside too                                                    |
 
 Agents read the findings with the Security skill of the [[https://github.com/LispMachineLab/lispm-store][LispM Store]]; what was found is quoted
 to them as data.  They can neither trust a server nor set a finding aside: only the user can, in

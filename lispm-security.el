@@ -57,6 +57,12 @@
 ;;   to osv.dev, so it is done only when the user asks and agrees; a
 ;;   scan uses what was last looked up.
 ;;
+;; While LispM's agents work, the guard (lispm-security-guard.el) checks
+;; their tool calls before they run: the tools of a server the user has
+;; not trusted ask, those that changed since are kept back and denied,
+;; and calls that can send data out ask in a session that has read both
+;; untrusted content and private data.
+;;
 ;; What a scan finds are findings: plists with a rule, a severity, the
 ;; item they are about, where, and what to do.  The user may trust a
 ;; server's tools and set findings aside, in the window; agents read the
@@ -402,6 +408,7 @@ started, no skill's code evaluated, nothing sent over the network."
   (require 'lispm-security-elisp)
   (require 'lispm-security-pins)
   (require 'lispm-security-osv)
+  (require 'lispm-security-guard)
   (pcase-let ((`(,items . ,findings) (lispm-security-inventory)))
     (dolist (check lispm-security-check-functions)
       (pcase-let ((`(,found . ,failed) (lispm-security--safely check (format "%s" check) items)))
@@ -421,4 +428,10 @@ started, no skill's code evaluated, nothing sent over the network."
   "Open Security's window: the findings of a scan, the worst first." t)
 
 (provide 'lispm-security)
+
+;; Once LispM is loaded, its agents' tool calls are checked as they make
+;; them (lispm-security-guard.el); after `provide', which it requires.
+;;;###autoload
+(with-eval-after-load 'lispm-tools (require 'lispm-security-guard))
+
 ;;; lispm-security.el ends here
