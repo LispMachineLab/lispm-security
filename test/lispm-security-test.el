@@ -36,6 +36,8 @@
 
 (require 'ert)
 (require 'cl-lib)
+;; Loaded now, so that a scan's require does not undo a test's stand-in.
+(require 'project)
 (require 'lispm-security)
 (require 'lispm-security-inventory)
 (require 'lispm-security-rules)
