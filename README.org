@@ -2,111 +2,82 @@
 
 #+HTML: <p align="center"><a href="https://github.com/LispMachineLab/lispm-security/actions/workflows/test.yml"><img src="https://github.com/LispMachineLab/lispm-security/actions/workflows/test.yml/badge.svg" alt="test" /></a></p>
 
-Security checks what the agents of an Emacs are given to run: the MCP servers and skills of
+Checks what the agents in your Emacs are given to run: the MCP servers and skills of
 [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]], Claude Code and Codex, and Emacs's own packages.  It is an application of
-[[https://github.com/LispMachineLab/lispm-desktop][LispM Desktop]], which its App Store installs, and works in any Emacs 30.1 or later.  In code, the
-prefix is ~lispm-security-~.
+[[https://github.com/LispMachineLab/lispm-desktop][LispM Desktop]]'s App Store, and works in any Emacs 30.1 or later.  In code, the prefix is
+~lispm-security-~.
 
-* What it checks
+* What a scan checks
 
-A scan reads and never runs anything: no server is started, no skill's code evaluated, nothing
-sent over the network.  For each agent, it finds the servers and skills the agent itself would
-find, then checks them:
+A scan only reads: it starts no server, evaluates no skill and sends nothing over the network.
+For each agent it finds the servers and skills that agent would, and flags:
 
-- *Servers.*  A package npx or uvx runs without an exact version, so that each start may run
-  another; a container image named by a tag; a command line given to a shell; a remote server
-  over plain HTTP; a secret written out in the configuration file; packages that run scripts
-  when installed.  The versions servers do run, and what they bring along, are read from npx's
-  and uv's caches.
-- *Text models read*, skills' instructions and tools' descriptions: characters a reader does
-  not see, Unicode tags spelling out hidden text, comments Markdown hides, blank lines pushing
-  the rest out of view, encoded payloads, downloads piped into a shell, addresses that collect
-  data, words telling the model to drop its instructions or keep something from the user, files
-  of credentials.
-- *The code of LispM's skills*, read as Lisp: what it runs, reaches and changes; whether it
-  changes what decides what agents may do (LispM's policy, the skills trusted, Emacs's guards),
-  changes other functions, such as ~y-or-n-p~, or computes which function it calls; and whether
-  each of its tools is of the permission class what it does needs.  A tool of class read runs
-  without asking, so one that runs programs must say so.
-- *Tool pinning.*  Once the user trusts a running MCP server's tools, they are pinned by their
-  hash; a server whose tools then change, a rug pull, is reported with what changed.
-- *Known vulnerabilities and malicious packages*, looked up in [[https://osv.dev][OSV]], which gathers GitHub's,
-  PyPI's, Go's and RustSec's advisories and OpenSSF's malicious packages.  Looking up tells
-  osv.dev the names and versions of the packages, so it happens only when the user asks, and
-  after they agreed (~lispm-security-look-up~); scans use what was looked up last.
-- *What agents may do unasked*: LispM's default policy, Claude Code's mode that bypasses
-  permissions, Codex without its sandbox.
+- *Servers*: npx or uvx packages without an exact version, container images named by a tag,
+  command lines given to a shell, remote servers over plain HTTP, secrets in configuration
+  files, packages with install scripts.  Versions actually run are read from npx's and uv's caches.
+- *Text models read* (skill instructions, tool descriptions): invisible characters, hidden
+  Unicode tags and Markdown comments, encoded payloads, downloads piped into a shell, data
+  collecting addresses, prompt injection, credential files.
+- *LispM skills' code*, read as Lisp: what it runs, reaches and changes; whether it touches the
+  policy, trusted skills or Emacs's guards, advises functions such as ~y-or-n-p~, or calls
+  computed functions; whether each tool's permission class fits what it does.
+- *Tool pinning*: trusted MCP tools are pinned by hash, so a server whose tools later change (a
+  rug pull) is reported with the change.
+- *Known vulnerabilities and malicious packages*, from [[https://osv.dev][OSV]].  Looking up sends package
+  names and versions to osv.dev, so it happens only when you ask (~lispm-security-look-up~).
+- *What agents may do unasked*: LispM's default policy, Claude Code's bypass-permissions mode,
+  Codex without its sandbox.
 
-Rules flag what deserves a look.  The user judges: a finding they find harmless they set aside,
-and it stays so.
+Findings you judge harmless can be set aside, and stay so.
 
 * While agents work
 
-With LispM Agent 0.3.0 or later loaded, Security checks each tool call of LispM's agents before it
+With LispM Agent 0.3.0 or later, Security also checks each tool call of LispM's agents before it
 runs, and each MCP server's tools before agents see them:
 
-- *Servers you have not trusted.*  Each call of their tools asks, whatever LispM's policy says,
-  until you trust the server (=t= in the window).
-- *Tools that changed since you trusted them*, the shape of a rug pull.  When LispM registers
-  the server's tools, they are kept back, so that no agent reads what they now say, and their
-  calls are denied, should the server change them while it runs.  Set
-  ~lispm-security-changed-tools~ to ~ask~ to have them ask instead.  Trusting the server again
-  has LispM register its tools again.
-- *Toxic flows.*  Once a session has read untrusted content (a web page, what an MCP server
-  returned) and private data (your files, its memory), a call that can send data out (the web,
-  a shell command, Lisp, an MCP server's tool) asks: the content may have told the model to send
-  the data.  ~lispm-security-toxic-flows~ turns this off; ~lispm-security-untrusted-classes~,
-  ~lispm-security-private-classes~ and ~lispm-security-outbound-classes~ say which permission
-  classes are which.
+- *Untrusted servers*: every call of their tools asks, until you trust the server (=t=).
+- *Tools changed since you trusted them*: hidden from agents and their calls denied
+  (~lispm-security-changed-tools~ ~ask~ makes them ask instead).
+- *Toxic flows*: once a session has read untrusted content (the web, MCP results) and private
+  data (your files, its memory), a call that can send data out asks
+  (~lispm-security-toxic-flows~).
 
-Each answer comes with its reason, which the approval shows, or the model is told with a denial.
-LispM counts a check that fails as one that asks, so an error in Security lets no call through,
-and Security can only make a call ask or be refused, never let one through that LispM would ask
-about.  ~lispm-security-guard~ turns it all off, which a scan then reports, as it reports a LispM
-too old to ask.
+A failing check counts as one that asks, and Security can only tighten LispM's decision, never
+loosen it.  ~lispm-security-guard~ turns it all off, which a scan then reports.
 
 * Using it
 
-=M-x lispm-security= opens its window, the findings the worst first.
+=M-x lispm-security= opens the findings, the worst first.
 
-| =RET= | what the finding means, where, and what to do                                      |
-| =g=   | scan again                                                                         |
-| =l=   | look the packages servers run up in OSV                                            |
-| =t=   | trust the tools of the finding's MCP server: pin them as they are, and stop asking |
-| =x=   | set the finding aside, or take it back                                             |
-| =o=   | visit the file the finding is about, at its line                                   |
-| =i=   | the inventory: what each agent is given                                            |
-| =a=   | show the findings set aside too                                                    |
+| =RET= | what the finding means, where, and what to do         |
+| =g=   | scan again                                            |
+| =l=   | look up the packages servers run in OSV               |
+| =t=   | trust the finding's MCP server: pin its tools as they are |
+| =x=   | set the finding aside, or take it back                |
+| =o=   | visit the file the finding is about                   |
+| =i=   | the inventory: what each agent is given               |
+| =a=   | show the findings set aside too                       |
 
-Agents read the findings with the Security skill of the [[https://github.com/LispMachineLab/lispm-store][LispM Store]]; what was found is quoted
-to them as data.  They can neither trust a server nor set a finding aside: only the user can, in
-the window.
-
-What Security keeps, pins, findings set aside and what OSV answered, is in
-=~/.emacs.d/lispm-security/= (~lispm-security-directory~).
+Agents can read findings through the Security skill of [[https://github.com/LispMachineLab/lispm-store][LispM Store]], but only you can trust a
+server or set a finding aside.  Pins, findings set aside and OSV answers are kept in
+~lispm-security-directory~ (=~/.emacs.d/lispm-security/=).
 
 * Installation
 
-From LispM Desktop's App Store: Utilities, Security, Get.
-
-By hand, from a checkout:
+From LispM Desktop's App Store: Utilities, Security, Get.  By hand, from a checkout:
 
 #+begin_src emacs-lisp
 (add-to-list 'load-path "~/src/lispm-security")
 (require 'lispm-security)
 #+end_src
 
-* Tests
+* Development
 
-#+begin_src sh
-make test compile
-#+end_src
-
-They make up every file they read and send nothing.  With checkouts of lispm-agent, lispm-desktop
-and lispm-browser beside this one (or ~LISPM_AGENT=~, ~LISPM_DESKTOP=~ and ~LISPM_BROWSER=~ naming
-their lisp/), the tests of how Security works with them run too.
+=make test compile= runs the tests, which make up every file they read and send nothing.  With
+checkouts of lispm-agent, lispm-desktop and lispm-browser beside this one (or ~LISPM_AGENT~,
+~LISPM_DESKTOP~ and ~LISPM_BROWSER~ naming their =lisp/=), the integration tests run too.
 
 * License
 
-GNU Affero General Public License, version 3 or later; see [[file:LICENSE][LICENSE]].  OSV's data is under the
-licenses of its sources, CC-BY-4.0 for most.
+AGPL-3.0-or-later; see [[file:LICENSE][LICENSE]].  OSV's data is under its sources' licenses,
+CC-BY-4.0 for most.
