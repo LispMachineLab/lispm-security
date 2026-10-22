@@ -22,7 +22,8 @@
 ;; What each agent of this Emacs is given, found where the agent itself
 ;; finds it, and read without running anything:
 ;;
-;;   LispM        `lispm-mcp-servers'; the skills of
+;;   LispM        `lispm-mcp-servers'; the skills other programs bring
+;;                (`lispm-skill-sources'), those of
 ;;                `lispm-skill-directories' and of the projects' own
 ;;                .lispm/skills/
 ;;   Claude Code  ~/.claude.json (the user's servers, and each
@@ -57,6 +58,7 @@
 (declare-function package-desc-archive "package" (desc))
 (declare-function package-version-join "package" (vlist))
 (declare-function project-known-project-roots "project" ())
+(declare-function lispm-skills-directories "lispm-skills" (&optional agent))
 
 (defcustom lispm-security-claude-directory "~/.claude/"
   "Where Claude Code keeps its settings, skills and plugins."
@@ -455,43 +457,49 @@ A list of (NAME . FILE)."
 
 (defun lispm-security-lispm-skill-directories ()
   "The directories LispM's agents load skills from, the user's last.
-Those of `lispm-skill-directories' and the one write_skill saves in;
-without LispM loaded, ~/.lispm/skills/."
-  (let ((directories (mapcar (lambda (directory) (file-name-as-directory (expand-file-name directory)))
-                             (if (boundp 'lispm-skill-directories)
-                                 lispm-skill-directories
-                               '("~/.lispm/skills/"))))
-        (write (and (boundp 'lispm-write-skill-directory) lispm-write-skill-directory
-                    (file-name-as-directory (expand-file-name lispm-write-skill-directory)))))
-    (if (and write (not (member write directories)))
-        (append directories (list write))
-      directories)))
+As LispM gives them with `lispm-skills-directories': those other
+programs bring through `lispm-skill-sources', then those of
+`lispm-skill-directories' and the one write_skill saves in.  With an
+older LispM, the last two; without LispM loaded, ~/.lispm/skills/."
+  (if (fboundp 'lispm-skills-directories)
+      ;; Asked for no agent's, it gives no project's.
+      (mapcar #'car (seq-remove #'cdr (lispm-skills-directories)))
+    (let ((directories (mapcar (lambda (directory) (file-name-as-directory (expand-file-name directory)))
+                               (if (boundp 'lispm-skill-directories)
+                                   lispm-skill-directories
+                                 '("~/.lispm/skills/"))))
+          (write (and (boundp 'lispm-write-skill-directory) lispm-write-skill-directory
+                      (file-name-as-directory (expand-file-name lispm-write-skill-directory)))))
+      (if (and write (not (member write directories)))
+          (append directories (list write))
+        directories))))
 
 (defun lispm-security-inventory-lispm ()
   "LispM's MCP servers and skills: the user's, then each project's."
-  (append
-   (and (boundp 'lispm-mcp-servers)
-        (mapcar (pcase-lambda (`(,name . ,config))
-                  (lispm-security-server "LispM" name name nil config))
-                (seq-filter (lambda (entry) (and (consp entry) (stringp (car entry)))) lispm-mcp-servers)))
-   ;; A later directory's skill replaces an earlier one's of its name.
-   (let (skills)
-     (dolist (directory (lispm-security-lispm-skill-directories))
-       (pcase-dolist (`(,name . ,file) (lispm-security--org-skills directory))
-         (setf (alist-get name skills nil nil #'equal) file)))
-     (mapcar (pcase-lambda (`(,name . ,file)) (lispm-security-skill "LispM" name name file))
-             (sort skills (lambda (a b) (string< (car a) (car b))))))
-   (mapcan (lambda (root)
-             (let ((project (lispm-security--project-name root))
-                   (skills (expand-file-name ".lispm/skills/" root)))
-               ;; One of the user's directories is theirs, as LispM takes it.
-               (unless (seq-some (lambda (directory) (lispm-security--same-directory-p directory skills))
-                                 (lispm-security-lispm-skill-directories))
-                 (mapcar (pcase-lambda (`(,name . ,file))
-                           (lispm-security-skill "LispM" (concat project ":" name) name file
-                                                 :project (abbreviate-file-name root)))
-                         (lispm-security--org-skills skills)))))
-           (lispm-security--projects))))
+  (let ((directories (lispm-security-lispm-skill-directories)))
+    (append
+     (and (boundp 'lispm-mcp-servers)
+          (mapcar (pcase-lambda (`(,name . ,config))
+                    (lispm-security-server "LispM" name name nil config))
+                  (seq-filter (lambda (entry) (and (consp entry) (stringp (car entry)))) lispm-mcp-servers)))
+     ;; A later directory's skill replaces an earlier one's of its name.
+     (let (skills)
+       (dolist (directory directories)
+         (pcase-dolist (`(,name . ,file) (lispm-security--org-skills directory))
+           (setf (alist-get name skills nil nil #'equal) file)))
+       (mapcar (pcase-lambda (`(,name . ,file)) (lispm-security-skill "LispM" name name file))
+               (sort skills (lambda (a b) (string< (car a) (car b))))))
+     (mapcan (lambda (root)
+               (let ((project (lispm-security--project-name root))
+                     (skills (expand-file-name ".lispm/skills/" root)))
+                 ;; One of the user's directories is theirs, as LispM takes it.
+                 (unless (seq-some (lambda (directory) (lispm-security--same-directory-p directory skills))
+                                   directories)
+                   (mapcar (pcase-lambda (`(,name . ,file))
+                             (lispm-security-skill "LispM" (concat project ":" name) name file
+                                                   :project (abbreviate-file-name root)))
+                           (lispm-security--org-skills skills)))))
+             (lispm-security--projects)))))
 
 ;;;; Claude Code
 

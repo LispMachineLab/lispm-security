@@ -133,7 +133,7 @@ CLASS is the permission class a LispM tool doing so is of, nil for none.")
   "Forms that change what a function does.")
 
 (defconst lispm-security-guarding-variables
-  "\\`\\(?:lispm-\\(?:default-policy\\|trusted-skills\\|skill-directories\\|write-skill-directory\\|mcp-servers\\|rationale-permissions\\|.*\\(?:polic\\|trust\\|allow\\|permission\\|approv\\)\\)\\|lispm-security-.*\\)\\'"
+  "\\`\\(?:lispm-\\(?:default-policy\\|trusted-skills\\|skill-directories\\|skill-sources\\|write-skill-directory\\|mcp-servers\\|rationale-permissions\\|.*\\(?:polic\\|trust\\|allow\\|permission\\|approv\\)\\)\\|lispm-security-.*\\)\\'"
   "Variables that decide what LispM's agents may do, and Security's own.")
 
 (defconst lispm-security-emacs-guards
@@ -453,9 +453,11 @@ caller included, for as long as Emacs runs.")))
                              call :about target :evidence (symbol-name target)
                              :detail "Every caller then runs the skill's code instead of the \
 library's.")))))
-             ;; Hooks it adds to.
+             ;; Hooks it adds to.  One that decides what agents may do,
+             ;; such as where skills come from, is a variable changed.
              (when-let* (((eq head 'add-hook))
                          (hook (lispm-security--named (car arguments)))
+                         ((not (string-match-p lispm-security-guarding-variables (symbol-name hook))))
                          ((or (memq hook lispm-security-watched-hooks)
                               (string-match-p "\\`lispm-" (symbol-name hook)))))
                (add 'hooks 'medium (format "Runs from %s" hook) call :about hook
@@ -498,7 +500,7 @@ beyond any call of the skill's tools."))
            ((or 'setq 'setq-default 'setq-local 'setopt)
             (seq-map-indexed (lambda (argument index) (and (cl-evenp index) argument)) arguments))
            ((or 'set 'set-default 'customize-set-variable 'customize-save-variable 'customize-set-value
-                'add-to-list 'add-to-ordered-list 'makunbound)
+                'add-to-list 'add-to-ordered-list 'add-hook 'remove-hook 'makunbound)
             (list (lispm-security--named (car arguments))))
            ((or 'push 'cl-pushnew) (list (cadr arguments)))
            ((or 'pop 'cl-incf 'cl-decf) (list (car arguments)))
