@@ -1,11 +1,9 @@
 EMACS ?= emacs
-# lisp/ of lispm-agent and of LispM Desktop (which needs LispM Browser's),
-# checkouts beside this one by default.  Security needs neither; with them
-# on the load path, the tests of how it works with them run too.
+# lisp/ of lispm-agent, a checkout beside this one by default.  Security
+# needs it not; with it on the load path, the tests of how it works with
+# LispM's agents run too.
 LISPM_AGENT ?= ../lispm-agent/lisp
-LISPM_DESKTOP ?= ../lispm-desktop/lisp
-LISPM_BROWSER ?= ../lispm-browser/lisp
-LOAD_PATH = -L . $(foreach dir,$(wildcard $(LISPM_AGENT) $(LISPM_DESKTOP) $(LISPM_BROWSER)),-L $(dir))
+LOAD_PATH = -L . $(foreach dir,$(wildcard $(LISPM_AGENT)),-L $(dir))
 
 FILES = lispm-security.el lispm-security-toml.el lispm-security-inventory.el \
 	lispm-security-rules.el lispm-security-elisp.el lispm-security-pins.el \

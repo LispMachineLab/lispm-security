@@ -968,16 +968,28 @@ kept, reported, and fetched again only once changed."
       (should (string-match-p "Where: .*helper.org:36" text)))
     (should-error (lispm-security-explain "0000000000000000"))))
 
-(ert-deftest lispm-security-test-desktop ()
-  "In LispM Desktop, Security's window gets its buttons and status."
-  (skip-unless (require 'lispm-desktop-app-ui nil t))
-  (let ((skin (alist-get 'lispm-security-mode lispm-desktop-app-ui-skins)))
-    (should (equal (plist-get skin :title) "Security"))
-    (should (equal (mapcar (lambda (button) (if (stringp (car button)) (car button) 'label))
-                           (plist-get skin :buttons))
-                   '("Scan" "Look Up" "Trust" "Set Aside" label)))
-    (lispm-security-test--sandbox
-      (should (equal (lispm-security--status) '("nothing found" "Not scanned"))))))
+(ert-deftest lispm-security-test-what-the-window-says ()
+  "Security says what a frontend's buttons and bottom need: its status,
+whether it lists the inventory, the finding shown and whether there is a
+file to visit."
+  (lispm-security-test--sandbox
+    (should (equal (lispm-security-status) '("nothing found" "Not scanned")))
+    (with-temp-buffer
+      (lispm-security-mode)
+      (should-not (lispm-security-inventory-p))
+      (should-not (lispm-security-shown))
+      (should-not (lispm-security-visitable-p))
+      (lispm-security-toggle-inventory)
+      (should (lispm-security-inventory-p)))))
+
+(ert-deftest lispm-security-test-knows-no-desktop ()
+  "Security stands alone: none of its files but the tests names LispM
+Desktop's code, which dresses its window from its own side."
+  (dolist (file (directory-files (file-name-directory (locate-library "lispm-security")) t "\\.el\\'"))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (should-not (and (re-search-forward "lispm-desktop\\|platinum" nil t)
+                       (format "%s:%d" (file-name-nondirectory file) (line-number-at-pos)))))))
 
 (provide 'lispm-security-test)
 ;;; lispm-security-test.el ends here

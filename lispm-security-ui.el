@@ -33,9 +33,13 @@
 ;;   a    show the findings set aside too, or not
 ;;   n p  the next and the previous line
 ;;
-;; In LispM Desktop, the App Store's Security opens it in a window of its
-;; own, with buttons for its main commands and its findings counted at
-;; the bottom.
+;; A frontend dresses the window from its own side with what it says of
+;; itself: `lispm-security-trust-enabled-p', `lispm-security-inventory-p',
+;; `lispm-security-shown' and `lispm-security-visitable-p' for its
+;; buttons, `lispm-security-status' for what it says at its bottom.
+;; LispM Desktop, whose App Store installs Security, opens it in a window
+;; of its own, with buttons for its main commands and its findings
+;; counted at the bottom.
 
 ;;; Code:
 
@@ -46,7 +50,6 @@
 
 (declare-function lispm-security-look-up "lispm-security-osv" (&optional done))
 (declare-function lispm-security-trust "lispm-security-pins" (server))
-(declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 
 (defface lispm-security-critical '((t :inherit error :weight bold))
   "Face of critical findings."
@@ -162,7 +165,7 @@
                                  #'lispm-security--finding-entries))
   (tabulated-list-init-header))
 
-(defun lispm-security--status ()
+(defun lispm-security-status ()
   "What Security's window says at its bottom: the findings, and the last scan."
   (list (lispm-security-summary)
         (if lispm-security-scanned-at
@@ -205,9 +208,19 @@
   (require 'lispm-security-osv)
   (lispm-security-look-up))
 
-(defun lispm-security--trust-enabled-p ()
+(defun lispm-security-trust-enabled-p ()
   "Non-nil if the finding at point is about a server to trust."
   (plist-get (ignore-errors (lispm-security--finding)) :server))
+
+(defun lispm-security-inventory-p ()
+  "Non-nil while Security's buffer lists what each agent is given, rather
+than the findings."
+  (eq lispm-security--view 'inventory))
+
+(defun lispm-security-shown ()
+  "The key of the finding a buffer of `lispm-security-finding-mode' shows,
+or nil."
+  lispm-security--shown)
 
 (defun lispm-security-trust-at-point ()
   "Trust the tools of the MCP server the finding at point is about.
@@ -257,12 +270,21 @@ They are pinned as they are now."
             (plist-get finding :line))
     (cons (plist-get (lispm-security-item id) :file) nil)))
 
+(defun lispm-security--file-at-point ()
+  "The file the line at point, or the finding shown, is about, and its
+line: (FILE . LINE)."
+  (lispm-security--file-of (if (derived-mode-p 'lispm-security-finding-mode)
+                               lispm-security--shown
+                             (tabulated-list-get-id))))
+
+(defun lispm-security-visitable-p ()
+  "Non-nil if the line at point, or the finding shown, is about a file."
+  (car (lispm-security--file-at-point)))
+
 (defun lispm-security-visit ()
   "Visit the file the line at point, or the finding shown, is about, at its line."
   (interactive)
-  (pcase-let ((`(,file . ,line) (lispm-security--file-of (if (derived-mode-p 'lispm-security-finding-mode)
-                                                              lispm-security--shown
-                                                            (tabulated-list-get-id)))))
+  (pcase-let ((`(,file . ,line) (lispm-security--file-at-point)))
     (unless (and file (file-exists-p (expand-file-name file)))
       (user-error "No file to visit"))
     (find-file-other-window (expand-file-name file))
@@ -379,7 +401,7 @@ They are pinned as they are now."
     "---"
     ["What It Means" lispm-security-describe]
     ["Visit the File" lispm-security-visit]
-    ["Trust the Server's Tools" lispm-security-trust-at-point :active (lispm-security--trust-enabled-p)]
+    ["Trust the Server's Tools" lispm-security-trust-at-point :active (lispm-security-trust-enabled-p)]
     ["Set Aside or Take Back" lispm-security-set-aside :active (eq lispm-security--view 'findings)]
     "---"
     ["Inventory" lispm-security-toggle-inventory :style toggle :selected (eq lispm-security--view 'inventory)]
@@ -423,29 +445,6 @@ It scans first if no scan ran yet."
         (lispm-security-mode))
       (lispm-security--refresh))
     (switch-to-buffer buffer)))
-
-;;;; In LispM Desktop
-
-(with-eval-after-load 'lispm-desktop-app-ui
-  (lispm-desktop-app-ui-define
-   'lispm-security-mode
-   :title "Security"
-   :list t
-   :buttons `(("Scan" lispm-security-rescan)
-              ("Look Up" lispm-security-look-up-and-show)
-              ("Trust" lispm-security-trust-at-point lispm-security--trust-enabled-p)
-              ("Set Aside" lispm-security-set-aside ,(lambda () (eq lispm-security--view 'findings)))
-              (,(lambda () (if (eq lispm-security--view 'inventory) "Findings" "Inventory"))
-               lispm-security-toggle-inventory))
-   :status #'lispm-security--status)
-  (lispm-desktop-app-ui-define
-   'lispm-security-finding-mode
-   :title "Security"
-   :prose t
-   :bottom nil
-   :buttons `(("Trust" lispm-security-trust-at-point lispm-security--trust-enabled-p)
-              ("Set Aside" lispm-security-set-aside ,(lambda () lispm-security--shown))
-              ("Visit" lispm-security-visit ,(lambda () (car (lispm-security--file-of lispm-security--shown)))))))
 
 (provide 'lispm-security-ui)
 ;;; lispm-security-ui.el ends here
