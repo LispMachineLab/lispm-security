@@ -74,8 +74,10 @@ From LispM Desktop's App Store: Utilities, Security, Get.  By hand, from a check
 * Development
 
 =make test compile= runs the tests, which make up every file they read and send nothing.  With
-checkouts of lispm-agent, lispm-desktop and lispm-browser beside this one (or ~LISPM_AGENT~,
-~LISPM_DESKTOP~ and ~LISPM_BROWSER~ naming their =lisp/=), the integration tests run too.
+a checkout of lispm-agent beside this one (or ~LISPM_AGENT~ naming its =lisp/=), the integration
+tests run too.  A test checks that no file of Security but the tests names LispM Desktop's code:
+the desktop dresses Security's window from its own side, with ~lispm-security-status~,
+~-trust-enabled-p~, ~-inventory-p~, ~-shown~ and ~-visitable-p~.
 
 * License
 
