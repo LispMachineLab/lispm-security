@@ -46,6 +46,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'tabulated-list)
+(require 'lispm-kit-commands)
 (require 'lispm-security)
 
 (declare-function lispm-security-look-up "lispm-security-osv" (&optional done))
@@ -381,32 +382,25 @@ line: (FILE . LINE)."
 
 ;;;; The mode
 
-(defvar-keymap lispm-security-mode-map
-  :doc "Keys of Security's window."
-  :parent tabulated-list-mode-map
-  "RET" #'lispm-security-describe
-  "g" #'lispm-security-rescan
-  "l" #'lispm-security-look-up-and-show
-  "t" #'lispm-security-trust-at-point
-  "x" #'lispm-security-set-aside
-  "o" #'lispm-security-visit
-  "i" #'lispm-security-toggle-inventory
-  "a" #'lispm-security-toggle-set-aside)
-
-(easy-menu-define lispm-security-menu lispm-security-mode-map
-  "Security's menu."
-  '("Security"
-    ["Scan Again" lispm-security-rescan]
-    ["Look Up in OSV" lispm-security-look-up-and-show]
-    "---"
-    ["What It Means" lispm-security-describe]
-    ["Visit the File" lispm-security-visit]
-    ["Trust the Server's Tools" lispm-security-trust-at-point :active (lispm-security-trust-enabled-p)]
-    ["Set Aside or Take Back" lispm-security-set-aside :active (eq lispm-security--view 'findings)]
-    "---"
-    ["Inventory" lispm-security-toggle-inventory :style toggle :selected (eq lispm-security--view 'inventory)]
-    ["Show Findings Set Aside" lispm-security-toggle-set-aside :style toggle
-     :selected lispm-security--show-ignored]))
+;; Each command once: its keys, its menu item and, for the main ones, the
+;; words of a button, for an interface showing them as buttons.
+(lispm-kit-define-commands lispm-security-mode
+  :menu "Security"
+  (lispm-security-rescan :key "g" :label "Scan Again" :button "Scan")
+  (lispm-security-look-up-and-show :key "l" :label "Look Up in OSV" :button "Look Up")
+  "---"
+  (lispm-security-describe :key "RET" :label "What It Means")
+  (lispm-security-visit :key "o" :label "Visit the File")
+  (lispm-security-trust-at-point
+   :key "t" :label "Trust the Server's Tools" :button "Trust" :enabled (lispm-security-trust-enabled-p))
+  (lispm-security-set-aside
+   :key "x" :label "Set Aside or Take Back" :button "Set Aside" :enabled (not (lispm-security-inventory-p)))
+  "---"
+  (lispm-security-toggle-inventory
+   :key "i" :label "Inventory" :style toggle :selected (lispm-security-inventory-p)
+   :button (if (lispm-security-inventory-p) "Findings" "Inventory"))
+  (lispm-security-toggle-set-aside
+   :key "a" :label "Show Findings Set Aside" :style toggle :selected lispm-security--show-ignored))
 
 (defun lispm-security--ellipsis ()
   "Show lines cut at the window's edge ending in an ellipsis, not a dollar."
@@ -420,12 +414,11 @@ line: (FILE . LINE)."
   (lispm-security--ellipsis)
   (lispm-security--set-format))
 
-(defvar-keymap lispm-security-finding-mode-map
-  :doc "Keys of the window of one of Security's findings."
-  :parent special-mode-map
-  "t" #'lispm-security-trust-at-point
-  "x" #'lispm-security-set-aside
-  "o" #'lispm-security-visit)
+;; A finding's commands, in no menu of their own.
+(lispm-kit-define-commands lispm-security-finding-mode
+  (lispm-security-trust-at-point :key "t" :button "Trust" :enabled (lispm-security-trust-enabled-p))
+  (lispm-security-set-aside :key "x" :button "Set Aside" :enabled (lispm-security-shown))
+  (lispm-security-visit :key "o" :button "Visit" :enabled (lispm-security-visitable-p)))
 
 (define-derived-mode lispm-security-finding-mode special-mode "Security Finding"
   "One of Security's findings: what it means, where, and what to do.
