@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-security
-;; Version: 0.3.0
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "30.1") (lispm-kit "0.1.0"))
 ;; Keywords: tools, processes
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
