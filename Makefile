@@ -2,11 +2,12 @@ EMACS ?= emacs
 # LispM UI (including Kit), with which Security declares its commands:
 # a checkout beside this one by default.
 LISPM_UI ?= ../lispm-ui
-# lisp/ of lispm-agent, a checkout beside this one by default.  Security
-# needs it not; with it on the load path, the tests of how it works with
-# LispM's agents run too.
+# lisp/ of lispm-agent, and lispm-auth which it loads: checkouts beside
+# this one by default.  Security needs them not; with them on the load
+# path, the tests of how it works with LispM's agents run too.
 LISPM_AGENT ?= ../lispm-agent/lisp
-LOAD_PATH = -L . -L $(LISPM_UI) $(foreach dir,$(wildcard $(LISPM_AGENT)),-L $(dir))
+LISPM_AUTH ?= ../lispm-auth
+LOAD_PATH = -L . -L $(LISPM_UI) $(foreach dir,$(wildcard $(LISPM_AUTH) $(LISPM_AGENT)),-L $(dir))
 
 FILES = lispm-security.el lispm-security-toml.el lispm-security-inventory.el \
 	lispm-security-rules.el lispm-security-elisp.el lispm-security-pins.el \
