@@ -1,12 +1,13 @@
 EMACS ?= emacs
-# LispM Kit, with which Security declares its commands: a checkout beside
-# this one by default.
-LISPM_KIT ?= ../lispm-kit
-# lisp/ of lispm-agent, a checkout beside this one by default.  Security
-# needs it not; with it on the load path, the tests of how it works with
-# LispM's agents run too.
+# LispM UI (including Kit), with which Security declares its commands:
+# a checkout beside this one by default.
+LISPM_UI ?= ../lispm-ui
+# lisp/ of lispm-agent, and lispm-auth which it loads: checkouts beside
+# this one by default.  Security needs them not; with them on the load
+# path, the tests of how it works with LispM's agents run too.
 LISPM_AGENT ?= ../lispm-agent/lisp
-LOAD_PATH = -L . -L $(LISPM_KIT) $(foreach dir,$(wildcard $(LISPM_AGENT)),-L $(dir))
+LISPM_AUTH ?= ../lispm-auth
+LOAD_PATH = -L . -L $(LISPM_UI) $(foreach dir,$(wildcard $(LISPM_AUTH) $(LISPM_AGENT)),-L $(dir))
 
 FILES = lispm-security.el lispm-security-toml.el lispm-security-inventory.el \
 	lispm-security-rules.el lispm-security-elisp.el lispm-security-pins.el \
@@ -23,6 +24,6 @@ test:
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch -L . -L $(LISPM_KIT) --eval '(setq byte-compile-error-on-warn t)' \
+	$(EMACS) -Q --batch -L . -L $(LISPM_UI) --eval '(setq byte-compile-error-on-warn t)' \
 	  -f batch-byte-compile $(FILES); \
 	status=$$?; rm -f *.elc; exit $$status
