@@ -4,7 +4,7 @@
 
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-security
-;; Version: 0.4.1
+;; Version: 0.5.0
 ;; Package-Requires: ((emacs "30.1") (lispm-ui "0.8.0"))
 ;; Keywords: tools, processes
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
@@ -213,6 +213,7 @@ left out."
     (pcase id
       ("security" "Security")
       ((rx "/settings" eos) "settings")
+      ((rx "/project/" (let name (+ anything)) eos) (format "project %s" name))
       (_ (replace-regexp-in-string "\\`[^/]+/[^/]+/" "" id)))))
 
 (defun lispm-security-agent-of (id)

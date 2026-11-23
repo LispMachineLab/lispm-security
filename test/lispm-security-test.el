@@ -982,6 +982,75 @@ file to visit."
       (lispm-security-toggle-inventory)
       (should (lispm-security-inventory-p)))))
 
+(defvar lispm-security-test--cve-2026-131959-ran nil
+  "Flag set if a crafted `.dir-locals.el' mode function ever runs.")
+
+(ert-deftest lispm-security-test-guard-mends-and-checks-cve-2026-131959 ()
+  "Loading the guard mends CVE-2026-131959; an unmended Emacs is reported."
+  (lispm-security-test--sandbox
+    (lispm-security-mend-dir-locals)
+    (should-not (lispm-security-dir-locals-vulnerable-p))
+    (let ((dir (expand-file-name "poc/" root))
+          (buffers nil))
+      (lispm-security-test--write
+       dir ".dir-locals.el"
+       "((auto-mode-alist . ((\"\" . fundamental-mode)\n  (\"\\\\.md\\\\'\" (lambda () (setq lispm-security-test--cve-2026-131959-ran 'lambda)) t)\n  (\"\\\\.org\\\\'\" eval-buffer t))))\n")
+      (lispm-security-test--write dir "README.md" "# hi\n")
+      (lispm-security-test--write dir "note.org" "(setq lispm-security-test--cve-2026-131959-ran 'eval)\n")
+      (setq lispm-security-test--cve-2026-131959-ran nil)
+      (unwind-protect
+          (let ((md (find-file-noselect (expand-file-name "README.md" dir) t))
+                (org (find-file-noselect (expand-file-name "note.org" dir) t)))
+            (setq buffers (list md org))
+            (should-not lispm-security-test--cve-2026-131959-ran)
+            (should (eq (buffer-local-value 'major-mode md) 'fundamental-mode))
+            (should (eq (buffer-local-value 'major-mode org) 'fundamental-mode)))
+        (dolist (buf buffers)
+          (when (buffer-live-p buf)
+            (kill-buffer buf)))))
+    (cl-letf (((symbol-function 'lispm-tool-decision) #'ignore)
+              ((symbol-function 'lispm-security-dir-locals-vulnerable-p) (lambda () t)))
+      (let ((enable-local-variables t)
+            (enable-dir-local-variables t))
+        (should (equal (lispm-security-test--rules (lispm-security-guard-check nil))
+                       '(cve-2026-131959))))
+      (let ((enable-dir-local-variables nil))
+        (should-not (lispm-security-guard-check nil))))))
+
+(ert-deftest lispm-security-test-dir-locals-findings ()
+  "A scan reads `.dir-locals.el' in projects, skills and packages without
+running it, reporting CVE-2026-131959 `auto-mode-alist' entries and guard
+changes while leaving harmless directory settings alone."
+  (lispm-security-test--sandbox
+    (let ((evil-project (expand-file-name "projects/evil-repo/" root))
+          (clean-project (expand-file-name "projects/clean-repo/" root))
+          (claude-skill (expand-file-name "skills/bad-skill/" lispm-security-claude-directory)))
+      (lispm-security-test--write
+       evil-project ".dir-locals.el"
+       "((auto-mode-alist . ((\"\" . fundamental-mode)\n  (\"\\\\.md\\\\'\" (lambda () (shell-command \"id\")) t)))\n (nil . ((enable-local-eval . t))))\n")
+      (lispm-security-test--write
+       clean-project ".dir-locals.el"
+       "((nil . ((fill-column . 76) (indent-tabs-mode . nil)))\n (\".git\" . ((text-mode . ((fill-column . 63)))))\n (auto-mode-alist . ((\"\\\\.txt\\\\'\" . text-mode) (\"\\\\.zig\\\\'\" . zig-mode))))\n")
+      (lispm-security-test--write claude-skill "SKILL.md" "# Bad Skill\nUse carefully.\n")
+      (lispm-security-test--write
+       claude-skill ".dir-locals-2.el"
+       "((auto-mode-alist . ((\"\\\\.md\\\\'\" . eval-buffer))))\n")
+      (cl-letf (((symbol-function 'project-known-project-roots)
+                 (lambda () (list evil-project clean-project))))
+        (lispm-security-scan))
+      (let ((auto-findings (lispm-security-test--of 'dir-locals-auto-mode lispm-security-findings))
+            (guard-findings (lispm-security-test--of 'changes-guard lispm-security-findings)))
+        (should (equal (mapcar (lambda (f) (list (plist-get f :item) (plist-get f :severity)))
+                               auto-findings)
+                       '(("Emacs/project/evil-repo" critical)
+                         ("Claude Code/skill/bad-skill" high))))
+        (should (equal (lispm-security-about "Emacs/project/evil-repo") "project evil-repo"))
+        (should (= (plist-get (car auto-findings) :line) 2))
+        (should (equal (mapcar (lambda (f) (plist-get f :item)) guard-findings)
+                       '("Emacs/project/evil-repo")))
+        (should-not (seq-find (lambda (f) (equal (plist-get f :item) "Emacs/project/clean-repo"))
+                              lispm-security-findings))))))
+
 (ert-deftest lispm-security-test-knows-no-desktop ()
   "Security stands alone: none of its files but the tests names LispM
 Desktop's code, which dresses its window from its own side."

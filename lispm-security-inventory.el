@@ -441,6 +441,22 @@ PROPERTIES are added to the item."
   (require 'project)
   (seq-filter #'file-directory-p (ignore-errors (project-known-project-roots))))
 
+(defun lispm-security-project-roots ()
+  "The roots of the projects Emacs and Claude Code know, deduplicated."
+  (let* ((claude (lispm-security--json (expand-file-name lispm-security-claude-config-file)))
+         (claude-roots (seq-keep (pcase-lambda (`(,root . ,_))
+                                   (let ((path (format "%s" root)))
+                                     (and (file-directory-p path) path)))
+                                 (lispm-security--get claude "projects")))
+         (seen nil)
+         (roots nil))
+    (dolist (root (append (lispm-security--projects) claude-roots))
+      (let ((true (file-name-as-directory (file-truename root))))
+        (unless (member true seen)
+          (push true seen)
+          (push (file-name-as-directory (expand-file-name root)) roots))))
+    (nreverse roots)))
+
 ;;;; LispM
 
 (defun lispm-security--org-skills (directory)

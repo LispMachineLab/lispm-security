@@ -53,16 +53,29 @@
 (require 'lispm-security)
 (require 'lispm-security-pins)
 
+(defvar auto-mode-case-fold)
 (declare-function lispm-agent-buffer "lispm-core" (agent))
 (declare-function lispm-get-tool "lispm-tools" (name))
 (declare-function lispm-tool-name "lispm-tools" (tool))
 (declare-function lispm-tool-permission "lispm-tools" (tool))
 (declare-function lispm-tool-decision "lispm-tools" (agent tool input))
 (declare-function lispm-mcp-tool-origin "lispm-mcp" (tool))
+(declare-function set-auto-mode-0 "files" (mode &optional keep-mode-if-same))
+(declare-function set-auto-mode--dir-local-valid-p "files" (mode))
+(declare-function set-auto-mode--from-matching-alist-entry "files"
+                  (alist name case-insensitive keep-mode-if-same dir-local))
 
 (defcustom lispm-security-guard t
   "Non-nil to check the tool calls of LispM's agents as they make them.
 See lispm-security-guard.el."
+  :group 'lispm-security
+  :type 'boolean)
+
+(defcustom lispm-security-mend-dir-locals t
+  "Non-nil to mend CVE-2026-131959 in this Emacs when the guard loads.
+GNU Emacs 31.1 and early builds of 32 run functions from compound
+`auto-mode-alist' entries in `.dir-locals.el' before checking whether
+`.dir-locals.el' may name them."
   :group 'lispm-security
   :type 'boolean)
 
@@ -244,23 +257,111 @@ out, by what AGENT's session has read."
 (add-hook 'lispm-tool-action-functions #'lispm-security-guard-tool-action)
 (add-hook 'lispm-mcp-register-functions #'lispm-security-guard-register)
 
+;;;; Mending CVE-2026-131959 in Emacs 31.1
+
+(defun lispm-security-dir-locals-vulnerable-p ()
+  "Return non-nil when `files' carries unpatched CVE-2026-131959 helpers."
+  (and (fboundp 'set-auto-mode--find-matching-alist-entry)
+       (not (fboundp 'set-auto-mode--from-matching-alist-entry))))
+
+(defun lispm-security-guard--alist-match (alist name case-insensitive)
+  "Return first matching entry in ALIST for file NAME.
+When CASE-INSENSITIVE is non-nil, match ignoring case."
+  (if case-insensitive
+      (let ((case-fold-search t))
+        (assoc-default name alist #'string-match))
+    (or (let ((case-fold-search nil))
+          (assoc-default name alist #'string-match))
+        (and auto-mode-case-fold
+             (let ((case-fold-search t))
+               (assoc-default name alist #'string-match))))))
+
+(defun lispm-security-guard--compound-entry-p (entry)
+  "Return non-nil when ENTRY has the compound `(MODE NON-NIL)' alist shape."
+  (and (not (functionp entry))
+       (consp entry)
+       (consp (cdr entry))
+       (not (null (cadr entry)))))
+
+(defun lispm-security-guard--from-matching-alist-entry
+    (alist name case-insensitive keep-mode-if-same dir-local)
+  "Apply matching modes in ALIST for file NAME.
+CASE-INSENSITIVE, KEEP-MODE-IF-SAME and DIR-LOCAL follow `files.el'."
+  (let (was-set)
+    (while
+        (let* ((newmode (lispm-security-guard--alist-match
+                         alist name case-insensitive))
+               (mode-t (when (lispm-security-guard--compound-entry-p newmode)
+                         (setq name (substring name 0 (match-beginning 0)))
+                         (car newmode)))
+               (mode (or mode-t newmode)))
+          (when newmode
+            (if (and dir-local
+                     (not (set-auto-mode--dir-local-valid-p mode)))
+                (message "Ignoring invalid mode `%S'" mode)
+              (set-auto-mode-0 mode keep-mode-if-same)
+              (setq was-set t))
+            mode-t)))
+    was-set))
+
+(defun lispm-security-guard--apply-alist (alist keep-mode-if-same dir-local)
+  "Apply `auto-mode-alist'-shaped ALIST to the current buffer safely.
+KEEP-MODE-IF-SAME and DIR-LOCAL follow `set-auto-mode--apply-alist'."
+  (when buffer-file-name
+    (save-match-data
+      (let ((name (file-name-sans-versions buffer-file-name))
+            (remote-id (file-remote-p buffer-file-name))
+            (case-insensitive-p (file-name-case-insensitive-p buffer-file-name)))
+        (when (and (stringp remote-id)
+                   (string-match (regexp-quote remote-id) name))
+          (setq name (substring name (match-end 0))))
+        (set-auto-mode--from-matching-alist-entry
+         alist name case-insensitive-p keep-mode-if-same dir-local)))))
+
+(defun lispm-security-mend-dir-locals ()
+  "Mend CVE-2026-131959 in an unpatched Emacs 31.1 or 32.0.50."
+  (when (lispm-security-dir-locals-vulnerable-p)
+    (defalias 'set-auto-mode--from-matching-alist-entry
+      #'lispm-security-guard--from-matching-alist-entry)
+    (defalias 'set-auto-mode--apply-alist
+      #'lispm-security-guard--apply-alist)
+    (fmakunbound 'set-auto-mode--find-matching-alist-entry)))
+
+(when lispm-security-mend-dir-locals
+  (lispm-security-mend-dir-locals))
+
 ;;;; In a scan
 
 (defun lispm-security-guard-check (_items)
-  "Findings of whether agents' calls are checked as they make them."
-  (cond
-   ((not lispm-security-guard)
-    (list (lispm-security-finding
-           'guard-off 'medium "security" "Agents' tool calls are not checked as they make them"
-           :detail "`lispm-security-guard' is off: the tools of servers you have not trusted, and \
+  "Findings of whether agents' calls are checked and this Emacs is mended."
+  (let (findings)
+    (cond
+     ((not lispm-security-guard)
+      (push (lispm-security-finding
+             'guard-off 'medium "security" "Agents' tool calls are not checked as they make them"
+             :detail "`lispm-security-guard' is off: the tools of servers you have not trusted, and \
 those that changed since you did, run as LispM's policy says.  Turn it on to have them ask, or be \
-refused.")))
-   ((and (featurep 'lispm-tools) (not (fboundp 'lispm-tool-decision)))
-    (list (lispm-security-finding
-           'guard-unsupported 'medium "security" "This LispM does not let Security check tool calls"
-           :detail "LispM Agent 0.3.0 and later ask Security about each tool call before it runs; \
+refused.")
+            findings))
+     ((and (featurep 'lispm-tools) (not (fboundp 'lispm-tool-decision)))
+      (push (lispm-security-finding
+             'guard-unsupported 'medium "security" "This LispM does not let Security check tool calls"
+             :detail "LispM Agent 0.3.0 and later ask Security about each tool call before it runs; \
 this one runs them as its policy says.  Update LispM (Software Update) for the tools of servers you \
-have not trusted, and those that changed since you did, to ask or be refused.")))))
+have not trusted, and those that changed since you did, to ask or be refused.")
+            findings)))
+    (when (and (lispm-security-dir-locals-vulnerable-p)
+               enable-local-variables
+               enable-dir-local-variables)
+      (push (lispm-security-finding
+             'cve-2026-131959 'high "security"
+             "This Emacs runs code from .dir-locals.el without asking (CVE-2026-131959)"
+             :detail "GNU Emacs 31.1 and early builds of 32 run a function placed in a compound \
+`auto-mode-alist' entry of `.dir-locals.el' as soon as a file under that directory is visited, \
+before checking whether `.dir-locals.el' may name it.  Call `lispm-security-mend-dir-locals', \
+turn `lispm-security-mend-dir-locals' on, or update Emacs to 31.2 or later.")
+            findings))
+    (nreverse findings)))
 
 (add-hook 'lispm-security-check-functions #'lispm-security-guard-check t)
 
