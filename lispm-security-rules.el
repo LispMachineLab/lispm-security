@@ -365,7 +365,8 @@ source, if any, says.  A skill should ship its source only.")
                  :detail "Not text, so not checked.  Make sure it is what its name says, such as an \
 image the skill shows.")
                 findings))
-         ;; LispM's Lisp is read as code, in lispm-security-elisp.el.
+         ;; LispM's Lisp and `.dir-locals.el' are read as Lisp, in lispm-security-elisp.el.
+         ((member (file-name-nondirectory file) '(".dir-locals.el" ".dir-locals-2.el")))
          ((and (eq (plist-get item :format) 'org) (string-suffix-p ".el" file)))
          (t (let ((text (lispm-security-read-text file)))
               (setq findings

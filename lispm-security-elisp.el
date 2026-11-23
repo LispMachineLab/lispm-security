@@ -55,6 +55,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'lispm-security)
+(require 'lispm-security-inventory)
 (require 'lispm-security-rules)
 
 (declare-function lispm-get-tool "lispm-tools" (name))
@@ -603,6 +604,155 @@ calling it then run the skill's code, under the old tool's name." name
             findings))
     findings))
 
+;;;; Directory-local variables (.dir-locals.el)
+
+(defconst lispm-security-dir-locals-names '(".dir-locals.el" ".dir-locals-2.el")
+  "File names Emacs reads directory-local variables from.")
+
+(defun lispm-security-dir-locals-file-p (file)
+  "Non-nil if FILE is one of `lispm-security-dir-locals-names'."
+  (and (member (file-name-nondirectory file) lispm-security-dir-locals-names) t))
+
+(defun lispm-security-dir-local-mode-valid-p (mode)
+  "Non-nil if MODE may appear in `.dir-locals.el''s `auto-mode-alist'.
+Matches `set-auto-mode--dir-local-valid-p' on symbols read without loading
+third-party modes: MODE must be a symbol ending in `-mode', and when bound
+already it must be a command not derived from `special-mode'."
+  (let ((sym (lispm-security--bare mode)))
+    (and sym
+         (symbolp sym)
+         (string-suffix-p "-mode" (symbol-name sym))
+         (or (not (fboundp sym))
+             (and (commandp sym)
+                  (not (provided-mode-derived-p sym 'special-mode)))))))
+
+(defun lispm-security--dir-local-truthy-p (form)
+  "Non-nil if FORM, as read with positioned symbols, is non-nil."
+  (not (null (if (symbol-with-pos-p form) (bare-symbol form) form))))
+
+(defun lispm-security--dir-local-compound-spec-p (spec)
+  "Non-nil if SPEC has the compound `(MODE NON-NIL)' shape in `auto-mode-alist'."
+  (and (consp spec)
+       (not (memq (lispm-security--bare (car-safe spec)) '(lambda closure)))
+       (consp (cdr spec))
+       (lispm-security--dir-local-truthy-p (cadr spec))))
+
+(defun lispm-security--dir-local-auto-mode-findings (item entries file line-of)
+  "Findings for `auto-mode-alist' ENTRIES of ITEM in FILE, located by LINE-OF."
+  (let (findings)
+    (while (consp entries)
+      (let ((entry (pop entries)))
+        (when (consp entry)
+          (let* ((spec (cdr entry))
+                 (compound (lispm-security--dir-local-compound-spec-p spec))
+                 (mode (if compound (car spec) spec)))
+            (unless (lispm-security-dir-local-mode-valid-p mode)
+              (push (lispm-security-finding
+                     'dir-locals-auto-mode (if compound 'critical 'high) item
+                     (if compound
+                         "Runs code when a file is opened, through .dir-locals.el (CVE-2026-131959)"
+                       "Names a function that is not a major mode in .dir-locals.el")
+                     :file file
+                     :line (when-let* ((pos (lispm-security--position entry)))
+                             (funcall line-of pos))
+                     :evidence (lispm-security-evidence
+                                (format "%S" (lispm-security--plain entry)))
+                     :detail (if compound
+                                 "A compound `(REGEXP FUNCTION NON-NIL)' entry in `.dir-locals.el' \
+runs FUNCTION as soon as an unpatched GNU Emacs 31.1 or 32 visits a matching file in the directory, \
+without asking (CVE-2026-131959).  Remove the entry before opening files there."
+                               "`.dir-locals.el''s `auto-mode-alist' may name only major modes \
+ending in `-mode', never arbitrary functions or `special-mode' buffers."))
+                    findings))))))
+    (nreverse findings)))
+
+(defun lispm-security--dir-local-binding-findings (item pair file line-of)
+  "Findings for a `(VARIABLE . VALUE)' PAIR of ITEM in `.dir-locals.el' FILE.
+LINE-OF maps character positions to line numbers."
+  (when (consp pair)
+    (let ((variable (lispm-security--bare (car pair)))
+          (value (cdr pair))
+          (line (when-let* ((pos (lispm-security--position pair)))
+                  (funcall line-of pos))))
+      (cond
+       ((eq variable 'auto-mode-alist)
+        (lispm-security--dir-local-auto-mode-findings item value file line-of))
+       ((eq variable 'eval)
+        (lispm-security--elisp-findings item (list value) file line-of))
+       ((and variable (symbolp variable)
+             (string-match-p lispm-security-guarding-variables (symbol-name variable)))
+        (list (lispm-security-finding
+               'changes-policy 'critical item
+               (format "Sets %s in .dir-locals.el, which decides what agents may do" variable)
+               :file file :line line
+               :evidence (lispm-security-evidence (format "%S" (lispm-security--plain pair)))
+               :detail "Directory-local variables apply whenever files under the directory are \
+visited; none should change LispM's policy or Security's settings.")))
+       ((and variable (memq variable lispm-security-emacs-guards))
+        (list (lispm-security-finding
+               'changes-guard 'high item
+               (format "Sets %s in .dir-locals.el, one of Emacs's guards" variable)
+               :file file :line line
+               :evidence (lispm-security-evidence (format "%S" (lispm-security--plain pair)))
+               :detail "It decides what Emacs trusts: local variables evaluated, certificates \
+checked, where programs and libraries are found.")))))))
+
+(defun lispm-security--dir-local-alist-findings (item alist file line-of)
+  "Findings for a `.dir-locals.el' ALIST of ITEM in FILE, located by LINE-OF."
+  (let (findings)
+    (while (consp alist)
+      (let ((clause (pop alist)))
+        (when (consp clause)
+          (let ((target (car clause))
+                (body (cdr clause)))
+            (setq findings
+                  (append findings
+                          (cond
+                           ((eq (lispm-security--bare target) 'auto-mode-alist)
+                            (lispm-security--dir-local-auto-mode-findings
+                             item body file line-of))
+                           ((stringp target)
+                            (lispm-security--dir-local-alist-findings
+                             item body file line-of))
+                           (t
+                            (let (sub)
+                              (while (consp body)
+                                (setq sub (append sub
+                                                  (lispm-security--dir-local-binding-findings
+                                                   item (pop body) file line-of))))
+                              sub)))))))))
+    findings))
+
+(defun lispm-security-dir-locals-findings (item file)
+  "Findings for `.dir-locals.el' FILE belonging to ITEM."
+  (when (file-readable-p file)
+    (let* ((shown (abbreviate-file-name file))
+           (code (lispm-security-read-text file)))
+      (pcase-let ((`(,forms . ,problem) (lispm-security-elisp-read code)))
+        (let ((symbols-with-pos-enabled t))
+          (append
+           (and problem
+                (list (lispm-security-finding
+                       'unreadable-code 'low item "Holds a .dir-locals.el that does not read"
+                       :file shown :evidence problem
+                       :detail "Emacs stops reading `.dir-locals.el' where reading fails; what read \
+before it was checked here.")))
+           (with-temp-buffer
+             (insert code)
+             (let ((line-of (lambda (position)
+                              (line-number-at-pos (min position (point-max))))))
+               (mapcan (lambda (form)
+                         (lispm-security--dir-local-alist-findings item form shown line-of))
+                       forms)))
+           (lispm-security-text-findings item code shown 1 (file-name-nondirectory file) nil t)))))))
+
+(defun lispm-security--directory-dir-locals-findings (item directory)
+  "Findings for `.dir-locals.el' files directly in DIRECTORY, attributed to ITEM."
+  (when (and directory (file-directory-p directory))
+    (mapcan (lambda (name)
+              (lispm-security-dir-locals-findings item (expand-file-name name directory)))
+            lispm-security-dir-locals-names)))
+
 ;;;; Checking
 
 (defun lispm-security-elisp-code-findings (item code file &optional line)
@@ -626,21 +776,38 @@ read here.")))
          (lispm-security-text-findings item code file line "its code"))))))
 
 (defun lispm-security-elisp-check (items)
-  "The findings of the code of ITEMS that are LispM's skills."
-  (mapcan
-   (lambda (item)
-     (when (and (eq (plist-get item :kind) 'skill) (eq (plist-get item :format) 'org))
-       (let ((file (plist-get item :file)))
-         (append
-          (mapcan (pcase-lambda (`(,line . ,code))
-                    (lispm-security-elisp-code-findings item code file line))
-                  (lispm-security-org-blocks (lispm-security-read-text (expand-file-name file))))
-          (mapcan (lambda (other)
-                    (when (string-suffix-p ".el" other)
-                      (lispm-security-elisp-code-findings item (lispm-security-read-text other)
-                                                          (abbreviate-file-name other))))
-                  (cdr (lispm-security-skill-files item)))))))
-   items))
+  "The findings of the code of ITEMS and of `.dir-locals.el' files."
+  (append
+   (mapcan
+    (lambda (item)
+      (pcase (plist-get item :kind)
+        ('skill
+         (let ((file (plist-get item :file))
+               (others (cdr (lispm-security-skill-files item))))
+           (append
+            (when (eq (plist-get item :format) 'org)
+              (append
+               (mapcan (pcase-lambda (`(,line . ,code))
+                         (lispm-security-elisp-code-findings item code file line))
+                       (lispm-security-org-blocks (lispm-security-read-text (expand-file-name file))))
+               (mapcan (lambda (other)
+                         (when (and (string-suffix-p ".el" other)
+                                    (not (lispm-security-dir-locals-file-p other)))
+                           (lispm-security-elisp-code-findings item (lispm-security-read-text other)
+                                                               (abbreviate-file-name other))))
+                       others)))
+            (mapcan (lambda (other)
+                      (when (lispm-security-dir-locals-file-p other)
+                        (lispm-security-dir-locals-findings item other)))
+                    others))))
+        ('package
+         (lispm-security--directory-dir-locals-findings item (plist-get item :directory)))))
+    items)
+   (mapcan (lambda (root)
+             (lispm-security--directory-dir-locals-findings
+              (format "Emacs/project/%s" (lispm-security--project-name root))
+              root))
+           (lispm-security-project-roots))))
 
 (add-hook 'lispm-security-check-functions #'lispm-security-elisp-check t)
 
