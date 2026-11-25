@@ -45,6 +45,7 @@
 (require 'subr-x)
 (require 'url)
 (require 'url-http)
+(require 'lispm-ui-ask)
 (require 'lispm-security)
 
 (defvar url-http-end-of-headers)
@@ -157,8 +158,9 @@ message saying what came of it and nil, or nil and why nothing did."
      ((null packages)
       (funcall done nil "no package to look up: no server runs one at a version known"))
      ((and (eq lispm-security-look-up 'ask)
-           (not (y-or-n-p (format "Look %d packages up in OSV?  Their names and versions go to osv.dev. "
-                                  (length packages)))))
+           (not (lispm-ui-confirm (format "Look %d packages up in OSV?" (length packages))
+                                  "Their names and versions go to osv.dev."
+                                  "Look Up")))
       (funcall done nil "not looked up"))
      (t
       (lispm-security-osv--query

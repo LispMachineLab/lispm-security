@@ -853,7 +853,7 @@ kept, reported, and fetched again only once changed."
       (lispm-security-scan)
       (should (lispm-security-test--of 'not-looked-up lispm-security-findings))
       ;; Not agreed, nothing is sent.
-      (cl-letf (((symbol-function 'y-or-n-p) (lambda (prompt) (setq asked prompt) nil)))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (prompt) (setq asked prompt) nil)))
         (lispm-security-look-up (lambda (_ problem) (setq said problem))))
       (should (string-match-p "Look 3 packages up in OSV" asked))
       (should (equal said "not looked up"))
@@ -862,7 +862,7 @@ kept, reported, and fetched again only once changed."
         (lispm-security-look-up (lambda (_ problem) (setq said problem)))
         (should (string-match-p "turned off" said)))
       ;; Agreed.
-      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_) t)))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_) t)))
         (lispm-security-look-up (lambda (text _) (setq said text))))
       (should (string-match-p "3 packages looked up in OSV: 2 known" said))
       (should (equal (mapcar #'cadr (car box)) '("/v1/querybatch" "/v1/vulns/GHSA-aaaa" "/v1/vulns/MAL-2026-1")))
@@ -1059,6 +1059,35 @@ Desktop's code, which dresses its window from its own side."
       (insert-file-contents file)
       (should-not (and (re-search-forward "lispm-desktop\\|platinum" nil t)
                        (format "%s:%d" (file-name-nondirectory file) (line-number-at-pos)))))))
+
+(ert-deftest lispm-security-test-prompts-use-lispm-ui ()
+  "Security's confirmations and server chooser route through `lispm-ui'."
+  (lispm-security-test--sandbox
+    (let* ((alerts nil)
+           (chosen nil)
+           (lispm-ui-alert-function
+            (lambda (_icon message buttons detail)
+              (push (list message detail (mapcar #'car buttons)) alerts)
+              (nth 1 (seq-find (lambda (b) (eq (nth 2 b) 'default)) buttons))))
+           (lispm-ui-choose-function
+            (lambda (choices &rest _)
+              (setq chosen (mapcar #'car choices))
+              (list (caar choices)))))
+      (setq lispm-mcp-servers '(("a" :command "npx" :args ("pkg@1.0.0"))))
+      (lispm-security-scan)
+      (cl-letf (((symbol-function 'lispm-security-osv--query)
+                 (lambda (_packages done) (funcall done nil))))
+        (lispm-security-look-up #'ignore))
+      (cl-letf (((symbol-function 'lispm-security-pins-running)
+                 (lambda () '(("srv" . (("tool" :hash "h1" :description "d" :inputSchema nil))))))
+                ((symbol-function 'lispm-security--finding)
+                 (lambda () '(:server "srv")))
+                ((symbol-function 'lispm-security-scan) #'ignore)
+                ((symbol-function 'lispm-security--reshow) #'ignore))
+        (lispm-security-trust-at-point)
+        (call-interactively #'lispm-security-trust))
+      (should (= (length alerts) 2))
+      (should (equal chosen '("srv"))))))
 
 (provide 'lispm-security-test)
 ;;; lispm-security-test.el ends here

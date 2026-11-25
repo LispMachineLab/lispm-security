@@ -41,6 +41,7 @@
 
 (require 'seq)
 (require 'subr-x)
+(require 'lispm-ui-ask)
 (require 'lispm-security)
 (require 'lispm-security-rules)
 
@@ -124,8 +125,11 @@ ask, unless they change (see lispm-security-guard.el); LispM registers
 them again, those it kept back included.  Only the user does: no
 agent's tool calls this."
   (interactive
-   (list (completing-read "Trust the tools of the MCP server: "
-                          (mapcar #'car (lispm-security-pins-running)) nil t)))
+   (let* ((running (lispm-security-pins-running))
+          (_ (unless running (user-error "No running MCP server lists tools")))
+          (choices (mapcar (lambda (entry) (cons (car entry) (car entry))) running))
+          (chosen (lispm-ui-choose choices nil nil "Trust the tools of the MCP server")))
+     (if chosen (list (car chosen)) (signal 'quit nil))))
   (let ((tools (cdr (assoc server (lispm-security-pins-running)))))
     (unless tools
       (user-error "The MCP server %s is not running, or lists no tools" server))

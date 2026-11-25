@@ -47,6 +47,7 @@
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'lispm-kit-commands)
+(require 'lispm-ui-ask)
 (require 'lispm-security)
 
 (declare-function lispm-security-look-up "lispm-security-osv" (&optional done))
@@ -229,7 +230,8 @@ They are pinned as they are now."
   (interactive)
   (let ((server (or (plist-get (lispm-security--finding) :server)
                     (user-error "This finding is not about a running MCP server's tools"))))
-    (when (y-or-n-p (format "Trust the tools %s lists now, and pin them? " server))
+    (when (lispm-ui-confirm (format "Trust the tools %s lists now, and pin them?" server)
+                            nil "Trust")
       (require 'lispm-security-pins)
       (lispm-security-trust server)
       (lispm-security-scan)
